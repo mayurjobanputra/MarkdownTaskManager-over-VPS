@@ -449,19 +449,13 @@ cd MarkdownTaskManager-over-VPS
 cp examples/kanban.md kanban.md
 cp examples/archive.md archive.md
 
-# 3. Run the server (binds to localhost:8444)
+# 3. Edit serve.py — set DIRECTORY to this folder
+#    (line 13: DIRECTORY = "/path/to/this/folder")
+sed -i "s|DIRECTORY = .*|DIRECTORY = \"$(pwd)\"|" serve.py
+
+# 4. Run the server (binds to localhost:8444)
 python3 serve.py
 ```
-
-### Remote Access via SSH Tunnel
-
-From your local machine, tunnel the server port:
-
-```bash
-ssh -L 8444:localhost:8444 your-user@your-vps-ip
-```
-
-Then open **http://localhost:8444** in your browser. The board auto-loads with no file picker needed.
 
 ### Configuration
 
@@ -471,6 +465,18 @@ Edit the top of `serve.py` to change port or directory:
 PORT = 8444
 DIRECTORY = "/path/to/your/kanban/folder"
 ```
+
+**Important:** Update `DIRECTORY` to the full path where your `kanban.md` and `archive.md` live before running the server.
+
+### Remote Access via SSH Tunnel
+
+With `serve.py` running on your VPS, tunnel the port from your local machine:
+
+```bash
+ssh -L 8444:localhost:8444 your-user@your-vps-ip
+```
+
+Then open **http://localhost:8444** in your browser. The board auto-loads with no file picker needed.
 
 ### Using with Hermes Agent
 
