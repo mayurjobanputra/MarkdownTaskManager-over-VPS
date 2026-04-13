@@ -1472,8 +1472,27 @@
         // Update static texts after DOM loads
         document.addEventListener('DOMContentLoaded', updateStaticTexts);
 
+
+        // ── Remote mode detection & API helpers ──────────────────────
+        const isRemoteMode = location.protocol === 'http:' || location.protocol === 'https:';
+
+        async function remoteLoad(filename) {
+            const resp = await fetch('/api/' + filename);
+            if (!resp.ok) throw new Error('Failed to load ' + filename + ': ' + resp.status);
+            return await resp.text();
+        }
+
+        async function remoteSave(filename, content) {
+            const resp = await fetch('/api/' + filename, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: content
+            });
+            if (!resp.ok) throw new Error('Failed to save ' + filename + ': ' + resp.status);
+        }
+
         // Check if File System Access API is supported
-        if (!('showDirectoryPicker' in window)) {
+        if (!isRemoteMode && !('showDirectoryPicker' in window)) {
             alert(t('alert.browserNotSupported'));
         }
 
@@ -1790,6 +1809,18 @@
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', async () => {
+            if (isRemoteMode) {
+                // Remote mode: auto-load, skip welcome screen
+                document.getElementById('welcomeScreen').style.display = 'none';
+                document.getElementById('kanbanView').style.display = 'block';
+                document.getElementById('filterBar').style.display = 'block';
+                document.getElementById('newTaskBtn').style.display = 'inline-flex';
+                document.getElementById('archiveBtn').style.display = 'inline-flex';
+                document.getElementById('manageColsBtn').style.display = 'inline-flex';
+                await loadKanbanFile();
+                return;
+            }
+
             await tryRestorePreviousDirectory();
 
             // Add event listener for project selector
@@ -1835,6 +1866,20 @@
 
         // Load kanban.md file
         async function loadKanbanFile() {
+            if (isRemoteMode) {
+                try {
+                    currentKanbanContent = await remoteLoad('board');
+                    console.log('Remote board loaded, size:', currentKanbanContent.length);
+                    parseMarkdown(currentKanbanContent);
+                    try { await loadArchive(); } catch(e) { archivedTasks = []; }
+                    updateAutocomplete();
+                    renderKanban();
+                } catch (error) {
+                    console.error('Error loading remote board:', error);
+                    showNotification('Failed to load board from server', 'error');
+                }
+                return;
+            }
             try {
                 kanbanFileHandle = await directoryHandle.getFileHandle('kanban.md');
                 const file = await kanbanFileHandle.getFile();
@@ -1956,10 +2001,16 @@ ${t('markdown.archiveSection')}
                 if (columnsMatch) {
                     console.log('Raw columns:', columnsMatch[1]);
                     config.columns = columnsMatch[1].split('|').map(col => {
-                        // Fixed regex to handle space before parenthesis
-                        const match = col.trim().match(/(.+?)\s*\((.+?)\)/);
-                        if (match) {
-                            return { name: match[1].trim(), id: match[2].trim() };
+                        // Try explicit format: "Name (id)"
+                        const explicitMatch = col.trim().match(/(.+?)\s*\((.+?)\)/);
+                        if (explicitMatch) {
+                            return { name: explicitMatch[1].trim(), id: explicitMatch[2].trim() };
+                        }
+                        // Fallback: derive ID from name (e.g. "📝 Backlog" → "backlog")
+                        const name = col.trim();
+                        if (name) {
+                            const id = name.replace(/[^\w\s-]/g, '').trim().toLowerCase().replace(/\s+/g, '-');
+                            return { name, id };
                         }
                         return null;
                     }).filter(Boolean);
@@ -2296,9 +2347,19 @@ ${t('markdown.archiveSection')}
 
         // Auto-save function
         async function autoSave() {
+            const newContent = generateMarkdown();
+            if (isRemoteMode) {
+                try {
+                    await remoteSave('board', newContent);
+                    currentKanbanContent = newContent;
+                    console.log('Auto-saved (remote)');
+                } catch (error) {
+                    console.error('Auto-save failed (remote):', error);
+                }
+                return;
+            }
             if (!kanbanFileHandle) return;
             try {
-                const newContent = generateMarkdown();
                 const writable = await kanbanFileHandle.createWritable();
                 await writable.write(newContent);
                 await writable.close();
@@ -3092,6 +3153,18 @@ ${t('markdown.archiveSection')}
         // Archive functions
         async function loadArchive() {
             console.log('🗃️ === LOADING ARCHIVE ===');
+            if (isRemoteMode) {
+                try {
+                    const content = await remoteLoad('archive');
+                    console.log('✓ Remote archive loaded, length:', content.length, 'characters');
+                    archivedTasks = parseTasksFromSection(content, '✅ Archives', 'archived');
+                    console.log('✓ Archive parsed. Total archived tasks:', archivedTasks.length);
+                } catch (error) {
+                    console.error('❌ Remote archive error:', error);
+                    archivedTasks = [];
+                }
+                return;
+            }
             try {
                 archiveFileHandle = await directoryHandle.getFileHandle('archive.md');
                 console.log('✓ Archive file handle obtained');
@@ -3150,9 +3223,13 @@ ${t('markdown.archiveSection')}
                 md += `\n`;
             });
 
-            const writable = await archiveFileHandle.createWritable();
-            await writable.write(md);
-            await writable.close();
+            if (isRemoteMode) {
+                await remoteSave('archive', md);
+            } else {
+                const writable = await archiveFileHandle.createWritable();
+                await writable.write(md);
+                await writable.close();
+            }
         }
 
         function archiveCurrentTask() {
