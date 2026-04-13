@@ -428,6 +428,107 @@ With this system, you have:
 
 ---
 
+## 🖥️ VPS / Remote Access
+
+Run the kanban board on a remote server (VPS, home server, cloud VM) and access it from anywhere via SSH tunnel. Works with **Hermes Agent**, **Claude Code**, and other AI assistants that can edit files on the server.
+
+### Prerequisites
+
+- **Python 3** (ships with most Linux distros)
+- **SSH access** to your server
+- No Node.js, no Docker, no dependencies
+
+### Setup
+
+```bash
+# 1. Clone the repo on your VPS
+git clone https://github.com/mayurjobanputra/MarkdownTaskManager-over-VPS.git
+cd MarkdownTaskManager-over-VPS
+
+# 2. Create your board data files (or copy existing ones)
+cp examples/kanban.md kanban.md
+cp examples/archive.md archive.md
+
+# 3. Run the server (binds to localhost:8444)
+python3 serve.py
+```
+
+### Remote Access via SSH Tunnel
+
+From your local machine, tunnel the server port:
+
+```bash
+ssh -L 8444:localhost:8444 your-user@your-vps-ip
+```
+
+Then open **http://localhost:8444** in your browser. The board auto-loads with no file picker needed.
+
+### Configuration
+
+Edit the top of `serve.py` to change port or directory:
+
+```python
+PORT = 8444
+DIRECTORY = "/path/to/your/kanban/folder"
+```
+
+### Using with Hermes Agent
+
+This repo includes remote mode in `task-manager.html` — it auto-detects when served over HTTP and uses the server API instead of the File System Access API. This means your AI agent can read and write the board directly through the API.
+
+**Tell your agent:**
+
+> "Clone the repo: https://github.com/mayurjobanputra/MarkdownTaskManager-over-VPS
+> Set up kanban.md and archive.md using the templates
+> Run serve.py on port 8444
+> Use the /api/board endpoint to read and write the board
+> Create tasks in the strict AI_WORKFLOW.md format"
+
+The agent can then use `curl` or the HTTP API to interact with the board:
+
+```bash
+# Read the board
+curl http://localhost:8444/api/board
+
+# Save updated board
+curl -X POST http://localhost:8444/api/board \
+  -H "Content-Type: text/plain" \
+  --data-binary @kanban.md
+
+# Read/write archives
+curl http://localhost:8444/api/archive
+curl -X POST http://localhost:8444/api/archive \
+  -H "Content-Type: text/plain" \
+  --data-binary @archive.md
+```
+
+### How It Works
+
+```
+┌──────────────┐        SSH        ┌──────────────────┐
+│   Browser    │ ◄── tunnel:8444 ──│   VPS / Server   │
+│  (local PC)  │                   │  python3 serve.py│
+└──────────────┘                   └────────┬─────────┘
+                                            │
+                                   ┌────────▼─────────┐
+                                   │   kanban.md       │
+                                   │   archive.md      │
+                                   └──────────────────┘
+                                   ┌──────────────────┐
+                                   │   AI Agent        │
+                                   │  (reads/writes    │
+                                   │   via /api/board) │
+                                   └──────────────────┘
+```
+
+### Security Notes
+
+- `serve.py` binds to **127.0.0.1** by default — only accessible locally or via SSH tunnel
+- No authentication is built in — don't expose port 8444 to the public internet
+- For reverse proxy setups (nginx, Caddy), add your own auth layer
+
+---
+
 ## ✨ Application Features
 
 ### 1. Interactive Kanban View
